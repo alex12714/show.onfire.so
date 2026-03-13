@@ -1,0 +1,26 @@
+services:
+  display-onfire-so:
+    image: nginx:alpine
+    container_name: display-onfire-so
+    restart: unless-stopped
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - coolify
+    labels:
+      - "traefik.docker.network=coolify"
+      - "traefik.enable=true"
+      - "traefik.http.routers.display-onfire-http.entrypoints=http"
+      - "traefik.http.routers.display-onfire-http.rule=Host(`display.onfire.so`)"
+      - "traefik.http.routers.display-onfire-http.service=display-onfire"
+      - "traefik.http.routers.display-onfire-https.entrypoints=https"
+      - "traefik.http.routers.display-onfire-https.rule=Host(`display.onfire.so`)"
+      - "traefik.http.routers.display-onfire-https.service=display-onfire"
+      - "traefik.http.routers.display-onfire-https.tls=true"
+      - "traefik.http.routers.display-onfire-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.display-onfire.loadbalancer.server.port=80"
+
+networks:
+  coolify:
+    external: true

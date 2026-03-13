@@ -1,0 +1,398 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a;
+    color: #fff;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app { height: 100vh; width: 100vw; }
+
+.screen { display: none; width: 100%; height: 100%; }
+.screen.active { display: flex; }
+
+/* Connect Screen */
+#connect-screen {
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+
+.connect-content {
+    text-align: center;
+    max-width: 500px;
+    padding: 40px;
+}
+
+.logo-img {
+    width: 80px;
+    height: auto;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 4px 16px rgba(249, 115, 22, 0.3));
+}
+
+.logo h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+.subtitle { color: #8892b0; font-size: 16px; margin-bottom: 40px; }
+
+.qr-section {
+    background: #fff;
+    border-radius: 20px;
+    padding: 24px;
+    display: inline-block;
+    margin-bottom: 24px;
+}
+
+#qr-canvas { display: block; margin: 0 auto; }
+
+.status-text { color: #666; font-size: 14px; margin-top: 12px; }
+.timer-text { color: #999; font-size: 12px; margin-top: 4px; }
+
+.or-divider {
+    color: #5a6078;
+    font-size: 13px;
+    margin: 16px 0;
+    position: relative;
+}
+
+.session-form {
+    display: flex;
+    gap: 8px;
+    max-width: 350px;
+    margin: 0 auto;
+}
+
+.session-form input {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid #333;
+    background: #1a1a2e;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+}
+
+.session-form input:focus { border-color: #f97316; }
+
+.session-form button {
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(135deg, #f97316, #ef4444);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.session-form button:hover { opacity: 0.9; }
+
+/* Presentation Screen */
+#presentation-screen {
+    position: relative;
+    background: #000;
+}
+
+/* Stop button — hidden in fullscreen */
+#stop-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.85);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: background 0.2s, opacity 0.2s;
+}
+
+#stop-btn:hover {
+    background: rgba(239, 68, 68, 1);
+}
+
+:fullscreen #stop-btn,
+:-webkit-full-screen #stop-btn,
+:-moz-full-screen #stop-btn {
+    padding: 10px;
+    border-radius: 50%;
+    opacity: 0.4;
+}
+
+:fullscreen #stop-btn span,
+:-webkit-full-screen #stop-btn span,
+:-moz-full-screen #stop-btn span {
+    display: none;
+}
+
+:fullscreen #stop-btn:hover,
+:-webkit-full-screen #stop-btn:hover,
+:-moz-full-screen #stop-btn:hover {
+    opacity: 1;
+}
+
+#slide-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+#slide-container img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+#slide-container video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+#slide-container iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+#slide-indicator {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    color: #ccc;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+}
+
+#presentation-screen:hover #slide-indicator,
+#slide-indicator.visible { opacity: 1; }
+
+/* Audio Player */
+.audio-player {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(135deg, #1a1a2e, #0f3460);
+    padding: 40px;
+}
+
+.audio-title { font-size: 28px; font-weight: 600; margin-bottom: 32px; }
+
+.waveform-container {
+    width: 80%;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    margin-bottom: 32px;
+}
+
+.waveform-bar {
+    width: 4px;
+    background: linear-gradient(to top, #f97316, #ef4444);
+    border-radius: 2px;
+    transition: height 0.1s ease;
+}
+
+.audio-progress {
+    width: 60%;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.audio-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f97316, #ef4444);
+    width: 0%;
+    transition: width 0.3s;
+}
+
+.audio-time {
+    color: #8892b0;
+    font-size: 14px;
+}
+
+/* Welcome screen */
+.welcome-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+}
+
+.welcome-screen h1 {
+    font-size: 48px;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.welcome-screen p {
+    color: #8892b0;
+    font-size: 20px;
+}
+
+/* End Screen — split layout */
+#end-screen {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+
+.end-split {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+/* Left side — thank you message */
+.end-left {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+    animation: fadeInLeft 0.8s ease-out;
+}
+
+.end-left-inner {
+    text-align: center;
+    max-width: 500px;
+}
+
+@keyframes fadeInLeft {
+    from { opacity: 0; transform: translateX(-30px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Right side — QR code */
+.end-right {
+    flex: 0 0 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px;
+    border-left: 1px solid rgba(255,255,255,0.08);
+    animation: fadeInRight 0.8s ease-out;
+}
+
+.end-right-inner {
+    text-align: center;
+}
+
+@keyframes fadeInRight {
+    from { opacity: 0; transform: translateX(30px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.end-logo {
+    width: 100px;
+    height: auto;
+    margin-bottom: 24px;
+    filter: drop-shadow(0 6px 20px rgba(249, 115, 22, 0.4));
+    animation: floatLogo 3s ease-in-out infinite;
+}
+
+@keyframes floatLogo {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+
+.end-title {
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.3;
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, #fff 0%, #e0e0e0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.end-subtitle {
+    color: #8892b0;
+    font-size: 18px;
+    margin-bottom: 32px;
+}
+
+.store-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+}
+
+.store-badge {
+    display: inline-block;
+    text-decoration: none;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.store-badge:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+}
+
+.store-svg {
+    height: 44px;
+    width: auto;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+/* QR box on end screen */
+.end-qr-box {
+    background: #fff;
+    border-radius: 20px;
+    padding: 24px;
+    display: inline-block;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+.end-qr-box canvas {
+    display: block;
+    margin: 0 auto;
+}
+
+.end-qr-hint {
+    color: #ccd6f6;
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+#end-qr-status {
+    color: #8892b0;
+    font-size: 13px;
+}
+
+#end-qr-timer {
+    color: #5a6078;
+    font-size: 12px;
+    margin-top: 4px;
+}

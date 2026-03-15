@@ -32,7 +32,18 @@ function markUserInteraction() {
 }
 document.addEventListener('click', markUserInteraction, { once: false });
 document.addEventListener('touchstart', markUserInteraction, { once: false });
-document.addEventListener('keydown', markUserInteraction, { once: false });
+document.addEventListener('keydown', function(e) {
+    markUserInteraction();
+    // Arrow keys advance slides locally (useful if remote connection is lost)
+    if (slides.length === 0) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (currentIndex < slides.length - 1) renderSlide(currentIndex + 1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (currentIndex > 0) renderSlide(currentIndex - 1);
+    }
+});
 
 // Load YouTube IFrame API
 (function() {
@@ -52,6 +63,7 @@ window.onYouTubeIframeAPIReady = function() {
 function startPositionReporting() {
     stopPositionReporting();
     positionReportInterval = setInterval(reportPosition, 2000);
+    createMediaControls();
 }
 
 function stopPositionReporting() {
@@ -141,6 +153,7 @@ function showStartGate() {
     // Fullscreen requires a user gesture, so we install a one-time click
     // handler — first tap/click anywhere on the display enters fullscreen.
     markUserInteraction();
+    preloadAllMedia();
     enterPresentation();
     installFullscreenOnTap();
 }
@@ -313,6 +326,7 @@ function startQRTimer() {
 
 function connectWithCode() {
     var input = document.getElementById('session-input');
+    if (!input) return;
     var code = input.value.trim();
     if (!code) return;
     markUserInteraction();
@@ -367,6 +381,7 @@ function enterPresentation() {
 
     renderSlide(currentIndex);
     startPolling();
+    setupPresentationMouseHandlers();
 }
 
 function showWelcome() {
@@ -393,32 +408,69 @@ function renderSlide(index) {
     var type = slide.slide_type || 'html';
     var settings = slide.settings || {};
 
-    if (type === 'image' || settings.media_type === 'image') {
-        var url = settings.media_url || settings.image_url || slide.background_picture || slide.external_slide_url || '';
-        container.innerHTML = '<img src="' + url + '" alt="' + (slide.title || '') + '">';
-    } else if (type === 'video' || settings.media_type === 'video') {
-        var vurl = settings.media_url || settings.video_url || slide.external_slide_url || '';
-        container.innerHTML = '<video id="media-video" crossorigin="anonymous" src="' + vurl + '" autoplay loop style="width:100%;height:100%;object-fit:contain;"></video>';
-        startPositionReporting();
-    } else if (settings.media_type === 'audio' || (settings.media_url && settings.media_url.match(/\.(mp3|wav|ogg|m4a)$/i))) {
-        renderAudioSlide(slide, settings);
-        startPositionReporting();
-    } else if (settings.media_type === 'youtube' || (settings.embed_url && settings.embed_url.match(/youtu/i))) {
+    // Resolve effective media type: settings.media_type takes priority,
+    // then auto-detect from media_url extension, then fall back to slide_type
+    var mediaType = settings.media_type || '';
+    var mediaUrl = settings.media_url || settings.image_url || settings.video_url || '';
+
+    // Auto-detect media type from URL when not explicitly set
+    if (!mediaType && mediaUrl) {
+        if (mediaUrl.match(/\.(mp4|mov|avi|webm|mkv)(\?|$)/i)) {
+            mediaType = 'video';
+        } else if (mediaUrl.match(/\.(mp3|wav|ogg|m4a|aac|flac)(\?|$)/i)) {
+            mediaType = 'audio';
+        } else if (mediaUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i)) {
+            mediaType = 'image';
+        }
+    }
+
+    // Check for YouTube/embed content in settings
+    var embedUrl = settings.embed_url || '';
+    var isYouTube = mediaType === 'youtube' || embedUrl.match(/youtu/i);
+
+    if (isYouTube) {
         renderYouTubeSlide(slide, settings);
         startPositionReporting();
-    } else if (settings.embed_url || settings.media_type === 'vimeo') {
+    } else if (mediaType === 'video' || type === 'video') {
+        var vurl = getCachedUrl(mediaUrl || slide.external_slide_url || '');
+        container.innerHTML = '<video id="media-video" crossorigin="anonymous" src="' + vurl + '" autoplay muted loop playsinline style="width:100%;height:100%;object-fit:contain;"></video>';
+        // Unmute after a short delay to satisfy autoplay policy
+        var vid = document.getElementById('media-video');
+        if (vid) {
+            vid.play().then(function() {
+                setTimeout(function() { if (vid) vid.muted = false; }, 300);
+            }).catch(function(e) { console.log('Video autoplay blocked:', e); });
+        }
+        startPositionReporting();
+    } else if (mediaType === 'audio' || (mediaUrl && mediaUrl.match(/\.(mp3|wav|ogg|m4a|aac|flac)(\?|$)/i))) {
+        renderAudioSlide(slide, settings);
+        startPositionReporting();
+    } else if (embedUrl || mediaType === 'vimeo') {
         renderEmbedSlide(slide, settings);
+    } else if (mediaType === 'image' || type === 'image' || type === 'Picture' || type === 'picture') {
+        var imgUrl = mediaUrl || slide.background_picture || slide.external_slide_url || '';
+        container.innerHTML = '<img src="' + imgUrl + '" alt="' + (slide.title || '') + '">';
     } else if (type === 'iframe') {
         var iurl = slide.external_slide_url || settings.iframe_url || '';
         container.innerHTML = '<iframe src="' + iurl + '" allow="autoplay; fullscreen"></iframe>';
     } else if (type === 'html') {
         container.innerHTML = settings.content_html || '<div class="welcome-screen"><h1>' + (slide.title || 'Slide') + '</h1></div>';
     } else {
-        container.innerHTML = '<div class="welcome-screen"><div style="font-size:64px">' + (slide.icon || '') + '</div><h1>' + (slide.title || 'Slide') + '</h1></div>';
+        // Fallback: if there's a media_url, try to render as image
+        if (mediaUrl) {
+            container.innerHTML = '<img src="' + mediaUrl + '" alt="' + (slide.title || '') + '">';
+        } else {
+            container.innerHTML = '<div class="welcome-screen"><div style="font-size:64px">' + (slide.icon || '') + '</div><h1>' + (slide.title || 'Slide') + '</h1></div>';
+        }
     }
 }
 
 function cleanupMedia() {
+    // Clear media controls and annotation overlay
+    removeMediaControls();
+    stopAnnotationAnimation();
+    currentAnnotations = [];
+    if (annotationCanvas) { annotationCanvas.remove(); annotationCanvas = null; annotationCtx = null; }
     // Stop position reporting
     stopPositionReporting();
 
@@ -506,12 +558,20 @@ function renderAudioSlide(slide, settings) {
         console.log('Audio visualization setup error (audio will still play):', e);
     }
 
-    audio.src = url;
+    audio.src = getCachedUrl(url);
     audio.load();
+    // Use muted-then-unmute pattern (same as video) to satisfy autoplay policy.
+    // Browsers allow muted autoplay; we unmute after playback starts.
+    audio.muted = true;
     audio.play().then(function() {
-        console.log('Audio playing');
+        console.log('Audio playing (muted, will unmute)');
+        setTimeout(function() {
+            var a = document.getElementById('media-audio');
+            if (a) a.muted = false;
+        }, 300);
     }).catch(function(e) {
         console.log('Auto-play blocked, will play on remote command:', e);
+        audio.muted = false; // Reset muted state for manual play
     });
 }
 
@@ -649,9 +709,12 @@ async function pollState() {
             }
             var ms = result.media_state || {};
             handleMediaState(ms);
+            handleZoomState(ms.zoom);
+            handleAnnotations(ms.annotations);
 
             if (result.slides && result.slides.length !== slides.length) {
                 slides = result.slides;
+                preloadAllMedia();
             }
         } else if (result && !result.success) {
             // Session ended — show thank you screen
@@ -663,6 +726,38 @@ async function pollState() {
     } catch (e) {
         console.error('Poll error:', e);
     }
+}
+
+function handleZoomState(zoom) {
+    var container = document.getElementById('slide-container');
+    if (!container) return;
+    var img = container.querySelector('img');
+    if (!img) {
+        // No image on this slide - nothing to zoom
+        return;
+    }
+    if (!zoom || zoom.scale <= 1.01) {
+        // Reset to default
+        img.style.transform = '';
+        img.style.transformOrigin = 'center center';
+        return;
+    }
+    // Mobile sends a normalized focal point (0-1): the content point at viewport center.
+    // We translate so that focal point appears at the display center, then scale.
+    var s = zoom.scale || 1;
+    var focalX = (zoom.focalX !== undefined) ? zoom.focalX : 0.5;
+    var focalY = (zoom.focalY !== undefined) ? zoom.focalY : 0.5;
+
+    var rect = container.getBoundingClientRect();
+    // After scale(s) from center, the focal point would be at:
+    //   screenX = centerX + s * (focalX * width - centerX)
+    // We need translate to move it to centerX:
+    //   dx = s * width * (0.5 - focalX)
+    var dx = s * rect.width * (0.5 - focalX);
+    var dy = s * rect.height * (0.5 - focalY);
+
+    img.style.transformOrigin = 'center center';
+    img.style.transform = 'translate(' + dx + 'px, ' + dy + 'px) scale(' + s + ')';
 }
 
 function handleMediaState(ms) {
@@ -684,7 +779,22 @@ function handleMediaState(ms) {
     }
 
     if (ms.playing && media.paused) {
-        media.play().catch(function(e) { console.log('Play failed:', e); });
+        // For audio, use muted-then-unmute to bypass autoplay restrictions
+        // when play command arrives from remote (poll callback, not user gesture)
+        if (audio && !video) {
+            media.muted = true;
+            media.play().then(function() {
+                setTimeout(function() {
+                    var a = document.getElementById('media-audio');
+                    if (a) a.muted = false;
+                }, 300);
+            }).catch(function(e) {
+                console.log('Audio play failed:', e);
+                media.muted = false;
+            });
+        } else {
+            media.play().catch(function(e) { console.log('Play failed:', e); });
+        }
     } else if (ms.playing === false && !media.paused) {
         media.pause();
     }
@@ -859,5 +969,441 @@ function returnToQR() {
     generateQR();
 }
 
+// --- Media Preload Cache ---
+// Preloads all slide media immediately after QR scan for instant access.
+// Images: new Image() → browser memory cache (instant <img> reuse)
+// Audio/Video: fetch → blob → createObjectURL (full download, instant playback)
+var mediaCache = {};
+var preloadQueue = [];
+var preloadActive = 0;
+var PRELOAD_CONCURRENCY = 3;
+
+function preloadAllMedia() {
+    if (!slides || slides.length === 0) return;
+    console.log('[Preload] Starting preload for ' + slides.length + ' slides');
+    preloadQueue = [];
+
+    for (var i = 0; i < slides.length; i++) {
+        var slide = slides[i];
+        var settings = slide.settings || {};
+        var urls = [];
+
+        // Gather all media URLs from this slide
+        var mediaUrl = settings.media_url || settings.image_url || settings.video_url || '';
+        if (mediaUrl) urls.push(mediaUrl);
+        if (slide.background_picture && urls.indexOf(slide.background_picture) < 0) {
+            urls.push(slide.background_picture);
+        }
+        if (slide.external_slide_url && urls.indexOf(slide.external_slide_url) < 0) {
+            urls.push(slide.external_slide_url);
+        }
+
+        for (var j = 0; j < urls.length; j++) {
+            var url = urls[j];
+            if (!url || mediaCache[url]) continue;
+
+            // Determine type
+            var type = detectMediaType(url, settings);
+            if (type) {
+                mediaCache[url] = { type: type, blobUrl: null, loaded: false };
+                preloadQueue.push({ url: url, type: type, slideIndex: i });
+            }
+        }
+    }
+
+    console.log('[Preload] Queued ' + preloadQueue.length + ' assets');
+    // Start concurrent downloads
+    for (var k = 0; k < PRELOAD_CONCURRENCY && preloadQueue.length > 0; k++) {
+        processPreloadQueue();
+    }
+}
+
+function detectMediaType(url, settings) {
+    var mt = (settings && settings.media_type) || '';
+    if (mt === 'image' || url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i)) return 'image';
+    if (mt === 'audio' || url.match(/\.(mp3|wav|ogg|m4a|aac|flac)(\?|$)/i)) return 'audio';
+    if (mt === 'video' || url.match(/\.(mp4|mov|avi|webm|mkv)(\?|$)/i)) return 'video';
+    // Default: try as image (most common for background_picture, external_slide_url)
+    if (!mt && url.match(/^https?:\/\//)) return 'image';
+    return null;
+}
+
+function processPreloadQueue() {
+    if (preloadQueue.length === 0) return;
+    var item = preloadQueue.shift();
+    preloadActive++;
+
+    if (item.type === 'image') {
+        var img = new Image();
+        img.onload = function() {
+            mediaCache[item.url].loaded = true;
+            console.log('[Preload] Image ready: slide ' + item.slideIndex);
+            preloadActive--;
+            processPreloadQueue();
+        };
+        img.onerror = function() {
+            console.log('[Preload] Image failed: ' + item.url.substring(0, 60));
+            preloadActive--;
+            processPreloadQueue();
+        };
+        img.src = item.url;
+    } else {
+        // Audio/Video: fetch full file as blob for instant playback
+        fetch(item.url)
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.blob();
+            })
+            .then(function(blob) {
+                mediaCache[item.url].blobUrl = URL.createObjectURL(blob);
+                mediaCache[item.url].loaded = true;
+                console.log('[Preload] ' + item.type + ' ready: slide ' + item.slideIndex +
+                    ' (' + Math.round(blob.size / 1024) + 'KB)');
+            })
+            .catch(function(e) {
+                console.log('[Preload] ' + item.type + ' failed: ' + e.message);
+            })
+            .finally(function() {
+                preloadActive--;
+                processPreloadQueue();
+            });
+    }
+}
+
+// Get cached blob URL if available, otherwise return original URL
+function getCachedUrl(url) {
+    if (!url) return url;
+    var cached = mediaCache[url];
+    if (cached && cached.loaded && cached.blobUrl) {
+        return cached.blobUrl;
+    }
+    return url;
+}
+
 // Start
-document.addEventListener('DOMContentLoaded', init);
+// --- Annotation overlay ---
+let annotationCanvas = null;
+let annotationCtx = null;
+let annotationAnimFrame = null;
+let currentAnnotations = [];
+
+function ensureAnnotationCanvas() {
+    if (annotationCanvas) return;
+    var container = document.getElementById("slide-container");
+    if (!container) return;
+    
+    // Make container position relative for absolute canvas positioning
+    container.style.position = "relative";
+    
+    annotationCanvas = document.createElement("canvas");
+    annotationCanvas.id = "annotation-overlay";
+    annotationCanvas.style.position = "absolute";
+    annotationCanvas.style.top = "0";
+    annotationCanvas.style.left = "0";
+    annotationCanvas.style.width = "100%";
+    annotationCanvas.style.height = "100%";
+    annotationCanvas.style.pointerEvents = "none";
+    annotationCanvas.style.zIndex = "10";
+    container.appendChild(annotationCanvas);
+}
+
+function handleAnnotations(annotations) {
+    if (!annotations || !Array.isArray(annotations)) {
+        if (currentAnnotations.length > 0) {
+            currentAnnotations = [];
+            stopAnnotationAnimation();
+            clearAnnotationCanvas();
+        }
+        return;
+    }
+    
+    currentAnnotations = annotations;
+    
+    // Filter to only non-expired annotations
+    var now = Date.now();
+    var active = annotations.filter(function(a) {
+        return now - a.ts < 5000;
+    });
+    
+    if (active.length > 0) {
+        ensureAnnotationCanvas();
+        startAnnotationAnimation();
+    } else {
+        currentAnnotations = [];
+        stopAnnotationAnimation();
+        clearAnnotationCanvas();
+    }
+}
+
+function startAnnotationAnimation() {
+    if (annotationAnimFrame) return;
+    renderAnnotations();
+}
+
+function stopAnnotationAnimation() {
+    if (annotationAnimFrame) {
+        cancelAnimationFrame(annotationAnimFrame);
+        annotationAnimFrame = null;
+    }
+}
+
+function clearAnnotationCanvas() {
+    if (annotationCanvas && annotationCtx) {
+        annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    }
+}
+
+function renderAnnotations() {
+    if (!annotationCanvas) {
+        annotationAnimFrame = null;
+        return;
+    }
+    
+    // Resize canvas to match container
+    var rect = annotationCanvas.parentElement.getBoundingClientRect();
+    if (annotationCanvas.width !== rect.width || annotationCanvas.height !== rect.height) {
+        annotationCanvas.width = rect.width;
+        annotationCanvas.height = rect.height;
+    }
+    
+    annotationCtx = annotationCanvas.getContext("2d");
+    annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    
+    var now = Date.now();
+    var hasActive = false;
+    var w = annotationCanvas.width;
+    var h = annotationCanvas.height;
+    
+    for (var i = 0; i < currentAnnotations.length; i++) {
+        var ann = currentAnnotations[i];
+        var age = now - ann.ts;
+        if (age > 5000) continue;
+        
+        hasActive = true;
+        
+        // Gradual fade over entire 5s lifetime
+        var opacity = Math.max(0, Math.min(1, 1.0 - age / 5000.0));
+        
+        if (ann.type === "dot") {
+            annotationCtx.beginPath();
+            annotationCtx.arc(ann.x * w, ann.y * h, 12, 0, Math.PI * 2);
+            annotationCtx.fillStyle = "rgba(255, 59, 48, " + opacity + ")";
+            annotationCtx.fill();
+        } else if (ann.type === "stroke" && ann.points && ann.points.length >= 2) {
+            // Draw gradient stroke from orange to red
+            annotationCtx.beginPath();
+            annotationCtx.moveTo(ann.points[0].x * w, ann.points[0].y * h);
+            for (var j = 1; j < ann.points.length; j++) {
+                annotationCtx.lineTo(ann.points[j].x * w, ann.points[j].y * h);
+            }
+            
+            // Create gradient along the stroke
+            var firstPt = ann.points[0];
+            var lastPt = ann.points[ann.points.length - 1];
+            var grad = annotationCtx.createLinearGradient(
+                firstPt.x * w, firstPt.y * h,
+                lastPt.x * w, lastPt.y * h
+            );
+            grad.addColorStop(0, "rgba(255, 107, 31, " + opacity + ")");
+            grad.addColorStop(1, "rgba(255, 59, 48, " + opacity + ")");
+            
+            annotationCtx.strokeStyle = grad;
+            annotationCtx.lineWidth = 4;
+            annotationCtx.lineCap = "round";
+            annotationCtx.lineJoin = "round";
+            annotationCtx.stroke();
+        }
+    }
+    
+    if (hasActive) {
+        annotationAnimFrame = requestAnimationFrame(renderAnnotations);
+    } else {
+        annotationAnimFrame = null;
+        clearAnnotationCanvas();
+    }
+}
+
+// --- Media Controls Overlay (show on mouse move, auto-hide) ---
+let mediaControlsEl = null;
+let mediaControlsUpdateInterval = null;
+let mouseActivityTimeout = null;
+let presentationMouseSetup = false;
+
+function createMediaControls() {
+    if (mediaControlsEl) return;
+
+    mediaControlsEl = document.createElement('div');
+    mediaControlsEl.id = 'media-controls';
+    mediaControlsEl.innerHTML =
+        '<button class="mc-play-btn" id="mc-play-btn">' +
+            '<svg class="mc-play-icon" width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>' +
+            '<svg class="mc-pause-icon" width="28" height="28" viewBox="0 0 24 24" fill="white" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>' +
+        '</button>' +
+        '<div class="mc-progress-wrap" id="mc-progress-wrap">' +
+            '<div class="mc-progress-bar">' +
+                '<div class="mc-progress-fill" id="mc-progress-fill"></div>' +
+            '</div>' +
+        '</div>' +
+        '<span class="mc-time" id="mc-time">0:00 / 0:00</span>';
+
+    document.getElementById('presentation-screen').appendChild(mediaControlsEl);
+
+    // Play/pause click
+    document.getElementById('mc-play-btn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleMediaFromDisplay();
+    });
+
+    // Seek on progress bar click
+    document.getElementById('mc-progress-wrap').addEventListener('click', function(e) {
+        e.stopPropagation();
+        var rect = this.getBoundingClientRect();
+        var ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        seekMediaFromDisplay(ratio);
+    });
+
+    // Start updating UI
+    if (!mediaControlsUpdateInterval) {
+        mediaControlsUpdateInterval = setInterval(updateMediaControlsUI, 500);
+    }
+}
+
+function removeMediaControls() {
+    if (mediaControlsEl) {
+        mediaControlsEl.remove();
+        mediaControlsEl = null;
+    }
+    if (mediaControlsUpdateInterval) {
+        clearInterval(mediaControlsUpdateInterval);
+        mediaControlsUpdateInterval = null;
+    }
+}
+
+function showPresentationUI() {
+    var screen = document.getElementById('presentation-screen');
+    if (!screen) return;
+    screen.classList.remove('cursor-hidden');
+
+    if (mediaControlsEl) mediaControlsEl.classList.add('visible');
+
+    var indicator = document.getElementById('slide-indicator');
+    if (indicator) indicator.classList.add('visible');
+
+    clearTimeout(mouseActivityTimeout);
+    mouseActivityTimeout = setTimeout(hidePresentationUI, 3000);
+}
+
+function hidePresentationUI() {
+    var screen = document.getElementById('presentation-screen');
+    if (!screen) return;
+    screen.classList.add('cursor-hidden');
+
+    if (mediaControlsEl) mediaControlsEl.classList.remove('visible');
+
+    var indicator = document.getElementById('slide-indicator');
+    if (indicator) indicator.classList.remove('visible');
+}
+
+function setupPresentationMouseHandlers() {
+    if (presentationMouseSetup) return;
+    presentationMouseSetup = true;
+
+    var screen = document.getElementById('presentation-screen');
+    screen.addEventListener('mousemove', showPresentationUI);
+    screen.addEventListener('mouseleave', function() {
+        clearTimeout(mouseActivityTimeout);
+        hidePresentationUI();
+    });
+}
+
+function updateMediaControlsUI() {
+    if (!mediaControlsEl) return;
+
+    var pos = 0, dur = 0, playing = false;
+    var audio = document.getElementById('media-audio');
+    var video = document.getElementById('media-video');
+
+    if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+        try {
+            pos = ytPlayer.getCurrentTime() || 0;
+            dur = ytPlayer.getDuration() || 0;
+            playing = (ytPlayer.getPlayerState() === 1);
+        } catch(e) {}
+    } else if (video) {
+        pos = video.currentTime || 0;
+        dur = video.duration || 0;
+        playing = !video.paused;
+    } else if (audio) {
+        pos = audio.currentTime || 0;
+        dur = audio.duration || 0;
+        playing = !audio.paused;
+    } else {
+        return;
+    }
+
+    // Update play/pause icons
+    var playIcon = mediaControlsEl.querySelector('.mc-play-icon');
+    var pauseIcon = mediaControlsEl.querySelector('.mc-pause-icon');
+    if (playIcon && pauseIcon) {
+        playIcon.style.display = playing ? 'none' : 'block';
+        pauseIcon.style.display = playing ? 'block' : 'none';
+    }
+
+    // Update progress bar
+    var fill = document.getElementById('mc-progress-fill');
+    if (fill && dur > 0) {
+        fill.style.width = (pos / dur * 100) + '%';
+    }
+
+    // Update time
+    var timeEl = document.getElementById('mc-time');
+    if (timeEl) {
+        timeEl.textContent = formatTime(pos) + ' / ' + formatTime(dur);
+    }
+}
+
+function toggleMediaFromDisplay() {
+    var audio = document.getElementById('media-audio');
+    var video = document.getElementById('media-video');
+
+    if (ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+        var state = ytPlayer.getPlayerState();
+        if (state === 1) {
+            ytPlayer.pauseVideo();
+        } else {
+            ytPlayer.playVideo();
+        }
+    } else if (video) {
+        if (video.paused) video.play().catch(function(){});
+        else video.pause();
+    } else if (audio) {
+        if (audio.paused) audio.play().catch(function(){});
+        else audio.pause();
+    }
+
+    showPresentationUI();
+}
+
+function seekMediaFromDisplay(ratio) {
+    ratio = Math.max(0, Math.min(1, ratio));
+    var dur = 0;
+    var audio = document.getElementById('media-audio');
+    var video = document.getElementById('media-video');
+
+    if (ytPlayer && typeof ytPlayer.getDuration === 'function') {
+        dur = ytPlayer.getDuration() || 0;
+        if (dur > 0) ytPlayer.seekTo(dur * ratio, true);
+    } else if (video) {
+        dur = video.duration || 0;
+        if (dur > 0) video.currentTime = dur * ratio;
+    } else if (audio) {
+        dur = audio.duration || 0;
+        if (dur > 0) audio.currentTime = dur * ratio;
+    }
+
+    showPresentationUI();
+}
+
+
+// Start
+document.addEventListener("DOMContentLoaded", init);

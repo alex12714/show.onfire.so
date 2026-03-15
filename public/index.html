@@ -10,6 +10,12 @@
     <div id="app">
         <!-- QR/Session Connect Screen -->
         <div id="connect-screen" class="screen active">
+            <div class="blob-background">
+                <div class="blob blob-1"></div>
+                <div class="blob blob-2"></div>
+                <div class="blob blob-3"></div>
+                <div class="blob blob-4"></div>
+            </div>
             <div class="connect-content">
                 <div class="logo">
                     <img src="logo.png" alt="OnFire" class="logo-img">
@@ -20,13 +26,6 @@
                     <canvas id="qr-canvas"></canvas>
                     <div id="qr-status" class="status-text">Generating...</div>
                     <div id="qr-timer" class="timer-text"></div>
-                </div>
-                <div class="session-input-section">
-                    <p class="or-divider">or enter session code</p>
-                    <div class="session-form">
-                        <input type="text" id="session-input" placeholder="Enter session code" autocomplete="off">
-                        <button id="connect-btn" onclick="connectWithCode()">Connect</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -45,6 +44,12 @@
 
         <!-- End Screen (split layout: thank-you left, QR right) -->
         <div id="end-screen" class="screen">
+            <div class="blob-background">
+                <div class="blob blob-1"></div>
+                <div class="blob blob-2"></div>
+                <div class="blob blob-3"></div>
+                <div class="blob blob-4"></div>
+            </div>
             <div class="end-split">
                 <!-- Left: Thank you message -->
                 <div class="end-left">

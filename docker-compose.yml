@@ -11,12 +11,15 @@ services:
     labels:
       - "traefik.docker.network=coolify"
       - "traefik.enable=true"
+      # HTTP → HTTPS redirect
       - "traefik.http.routers.display-onfire-http.entrypoints=http"
       - "traefik.http.routers.display-onfire-http.rule=Host(`display.onfire.so`)"
-      - "traefik.http.routers.display-onfire-http.service=display-onfire"
+      - "traefik.http.routers.display-onfire-http.middlewares=display-redirect-https"
+      - "traefik.http.middlewares.display-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.display-redirect-https.redirectscheme.permanent=true"
+      # HTTPS
       - "traefik.http.routers.display-onfire-https.entrypoints=https"
       - "traefik.http.routers.display-onfire-https.rule=Host(`display.onfire.so`)"
-      - "traefik.http.routers.display-onfire-https.service=display-onfire"
       - "traefik.http.routers.display-onfire-https.tls=true"
       - "traefik.http.routers.display-onfire-https.tls.certresolver=letsencrypt"
       - "traefik.http.services.display-onfire.loadbalancer.server.port=80"
